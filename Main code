@@ -1,0 +1,314 @@
+# === Install Required Libraries (Run Once in Jupyter) ===
+!pip install contractions shap xgboost wordcloud
+
+# === Library Imports ===
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import warnings
+warnings.filterwarnings('ignore')
+
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import mean_squared_error, r2_score, classification_report, accuracy_score
+
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from nltk.stem import WordNetLemmatizer
+import re
+import contractions
+from scipy import stats
+
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from xgboost import XGBRegressor
+
+import shap
+from wordcloud import WordCloud, STOPWORDS
+
+# === Load Dataset ===
+df = pd.read_csv("C:\\Users\\anite\\Downloads\\Internship Flipkart Project\\Customer_support_data (1).csv")
+
+# === Initial Dataset Inspection ===
+print(f"Rows: {df.shape[0]}, Columns: {df.shape[1]}")
+df.info()
+
+# Check for duplicates and missing values
+print(f"Duplicate Rows: {df.duplicated().sum()}")
+print(df.isnull().sum()[df.isnull().sum() > 0])
+
+# === Visualize Missing Values ===
+plt.figure(figsize=(10, 6))
+sns.heatmap(df.isnull(), cbar=False, cmap='viridis')
+plt.title("Missing Values Heatmap")
+plt.show()
+
+# === Preprocessing: Date Conversion ===
+if 'order_date_time' in df.columns:
+    df['order_date_time'] = pd.to_datetime(df['order_date_time'], errors='coerce')
+
+# Drop rows with missing target (CSAT Score)
+df.dropna(subset=['CSAT Score'], inplace=True)
+
+# Fill missing numeric values with median
+numeric_cols = df.select_dtypes(include=np.number).columns
+for col in numeric_cols:
+    df[col].fillna(df[col].median(), inplace=True)
+
+# Fill missing categorical values with mode
+categorical_cols = df.select_dtypes(include='object').columns
+for col in categorical_cols:
+    df[col].fillna(df[col].mode()[0], inplace=True)
+
+# Remove duplicate rows
+df.drop_duplicates(inplace=True)
+
+# === Exploratory Data Analysis (EDA) ===
+
+# 1. CSAT Score distribution
+sns.countplot(x='CSAT Score', data=df, palette='viridis')
+plt.title("CSAT Score Distribution")
+plt.xlabel("CSAT Score")
+plt.ylabel("Count")
+plt.tight_layout()
+plt.show()
+
+# 2. Connected Handling Time distribution
+sns.histplot(df['connected_handling_time'], bins=30, kde=True, color='blue')
+plt.title("Connected Handling Time Distribution")
+plt.xlabel("Connected Handling Time")
+plt.ylabel("Frequency")
+plt.tight_layout()
+plt.show()
+
+# 3. Product Category distribution
+sns.countplot(y='Product_category', data=df, order=df['Product_category'].value_counts().index, palette='cubehelix')
+plt.title("Product Category Distribution")
+plt.xlabel("Count")
+plt.ylabel("Product Category")
+plt.tight_layout()
+plt.show()
+
+# 4 & 5. Item Price distributions
+sns.histplot(df['Item_price'], bins=20, kde=True, color='green')
+plt.title("Item Price Distribution")
+plt.xlabel("Item Price")
+plt.ylabel("Frequency")
+plt.tight_layout()
+plt.show()
+
+sns.histplot(df['Item_price'], bins=20, kde=True, color='red')
+plt.title("Item Price Distribution")
+plt.xlabel("Item Price")
+plt.ylabel("Frequency")
+plt.tight_layout()
+plt.show()
+
+# 6 & 7. Handling Time dist & Boxenplot by CSAT
+sns.histplot(df['connected_handling_time'], bins=30, kde=True, color='orange')
+plt.title("Connected Handling Time Distribution")
+plt.xlabel("Connected Handling Time")
+plt.ylabel("Frequency")
+plt.tight_layout()
+plt.show()
+
+sns.boxenplot(x='CSAT Score', y='connected_handling_time', data=df, palette='cividis')
+plt.title("Connected Handling Time vs CSAT Score")
+plt.xlabel("CSAT Score")
+plt.ylabel("Connected Handling Time")
+plt.tight_layout()
+plt.show()
+
+# 8. Item Price vs CSAT Score (Boxenplot)
+sns.boxenplot(x='CSAT Score', y='Item_price', data=df, palette='Set3')
+plt.title("Item Price vs CSAT Score")
+plt.xlabel("CSAT Score")
+plt.ylabel("Item Price")
+plt.tight_layout()
+plt.show()
+
+# 9. Correlation Heatmap
+plt.figure(figsize=(10, 8))
+sns.heatmap(df.corr(numeric_only=True), annot=True, cmap='coolwarm', fmt='.2f')
+plt.title("Correlation Heatmap")
+plt.tight_layout()
+plt.show()
+
+# 10. Product Category vs CSAT Score
+sns.countplot(data=df, x='Product_category', hue='CSAT Score', palette='Set2')
+plt.title("Product Category vs CSAT Score")
+plt.xlabel("Product Category")
+plt.ylabel("Count")
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
+
+# 11. Violin Plot of Item Price vs CSAT Score
+sns.violinplot(x='CSAT Score', y='Item_price', data=df, palette='plasma')
+plt.title("Item Price vs CSAT Score")
+plt.xlabel("CSAT Score")
+plt.ylabel("Item Price")
+plt.tight_layout()
+plt.show()
+
+# 12. Strip Plot of Item Price vs CSAT Score
+sns.stripplot(x='CSAT Score', y='Item_price', data=df, jitter=0.2, palette='Set1', dodge=True)
+plt.title("Item Price vs CSAT Score")
+plt.xlabel("CSAT Score")
+plt.ylabel("Item Price")
+plt.tight_layout()
+plt.show()
+
+# 13. CSAT Score by Agent Shift
+plt.figure(figsize=(8,5))
+sns.countplot(data=df, x='Agent Shift', hue='CSAT Score', palette='pastel')
+plt.title('CSAT Score Distribution by Agent Shift')
+plt.xlabel('Agent Shift')
+plt.ylabel('Count')
+plt.tight_layout()
+plt.show()
+
+# 14. CSAT by Tenure Bucket
+plt.figure(figsize=(8,5))
+sns.countplot(data=df, x='Tenure Bucket', hue='CSAT Score', palette='muted')
+plt.title('CSAT Score Distribution by Tenure Bucket')
+plt.xlabel('Tenure Bucket')
+plt.ylabel('Count')
+plt.tight_layout()
+plt.show()
+
+# 15. Avg. Handling Time by CSAT Score
+plt.figure(figsize=(8,5))
+df.groupby('CSAT Score')['connected_handling_time'].mean().plot(kind='bar', color='coral')
+plt.title('Average Connected Handling Time by CSAT Score')
+plt.xlabel('CSAT Score')
+plt.ylabel('Average Connected Handling Time (seconds)')
+plt.tight_layout()
+plt.show()
+
+# 16. Item Price by Category (Boxplot)
+plt.figure(figsize=(10,6))
+sns.boxplot(data=df, x='category', y='Item_price', palette='Set2')
+plt.title('Item Price Distribution per Category')
+plt.xlabel('Category')
+plt.ylabel('Item Price')
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
+
+# 17. Customer Remarks Length Distribution
+df['Customer_Remarks_Length'] = df['Customer Remarks'].fillna('').apply(len)
+plt.figure(figsize=(8,5))
+sns.histplot(df['Customer_Remarks_Length'], bins=50, color='purple')
+plt.title('Distribution of Customer Remarks Length')
+plt.xlabel('Length of Customer Remarks (characters)')
+plt.ylabel('Frequency')
+plt.tight_layout()
+plt.show()
+
+# 18. Wordcloud of Customer Remarks
+text = ' '.join(df['Customer Remarks'].dropna().tolist())
+stopwords = set(STOPWORDS)
+wordcloud = WordCloud(stopwords=stopwords, background_color='white', max_words=100,
+                      max_font_size=50, random_state=42).generate(text)
+
+plt.figure(figsize=(10,6))
+plt.imshow(wordcloud, interpolation='bilinear')
+plt.axis('off')
+plt.title('Wordcloud of Customer Remarks')
+plt.show()
+
+# 19. Stacked Bar: CSAT Score by Product Category
+ct = pd.crosstab(df['Product_category'], df['CSAT Score'])
+ct.plot(kind='bar', stacked=True, figsize=(10,6), colormap='tab20')
+plt.title('CSAT Score Counts by Product Category')
+plt.xlabel('Product Category')
+plt.ylabel('Count')
+plt.tight_layout()
+plt.show()
+
+# === Modeling: Classification ===
+
+# Convert CSAT Score into binary classification target
+df['csat_binary'] = df['CSAT Score'].apply(lambda x: 1 if x >= 4 else 0)
+
+# Define features and target
+X_clf = df.select_dtypes(include=[np.number]).drop(columns=['CSAT Score', 'csat_binary'])
+y_clf = df['csat_binary']
+
+# Train/test split
+X_train_c, X_test_c, y_train_c, y_test_c = train_test_split(X_clf, y_clf, test_size=0.2, random_state=42)
+
+# Train Random Forest Classifier
+clf = RandomForestClassifier(random_state=42)
+clf.fit(X_train_c, y_train_c)
+y_pred_c = clf.predict(X_test_c)
+
+# Evaluate classification performance
+print("Classification Accuracy:", accuracy_score(y_test_c, y_pred_c))
+print("Classification Report:\n", classification_report(y_test_c, y_pred_c))
+
+# === Modeling: Regression ===
+
+# Define features and target for regression
+X = df.select_dtypes(include=[np.number]).drop(columns=['CSAT Score', 'csat_binary'])
+y = df['CSAT Score']
+
+# Train/test split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Feature scaling
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+# Initialize regressors
+rf_reg = RandomForestRegressor(random_state=42)
+xgb_reg = XGBRegressor(random_state=42)
+
+# Train models
+rf_reg.fit(X_train_scaled, y_train)
+xgb_reg.fit(X_train_scaled, y_train)
+
+# Predict and evaluate
+y_pred_rf = rf_reg.predict(X_test_scaled)
+y_pred_xgb = xgb_reg.predict(X_test_scaled)
+
+print("Random Forest Regressor RMSE:", np.sqrt(mean_squared_error(y_test, y_pred_rf)))
+print("Random Forest R² Score:", r2_score(y_test, y_pred_rf))
+
+print("XGBoost Regressor RMSE:", np.sqrt(mean_squared_error(y_test, y_pred_xgb)))
+print("XGBoost R² Score:", r2_score(y_test, y_pred_xgb))
+
+# === Hyperparameter Tuning ===
+
+# Grid Search for best Random Forest Regressor
+param_grid = {
+    'n_estimators': [100, 200],
+    'max_depth': [None, 10, 20],
+    'min_samples_split': [2, 5],
+    'min_samples_leaf': [1, 2]
+}
+
+grid_search = GridSearchCV(estimator=RandomForestRegressor(random_state=42),
+                           param_grid=param_grid,
+                           cv=3,
+                           scoring='neg_mean_squared_error',
+                           n_jobs=-1)
+grid_search.fit(X_train_scaled, y_train)
+
+best_model = grid_search.best_estimator_
+print("Best Parameters:", grid_search.best_params_)
+
+# === SHAP Explainability ===
+
+# Prepare data for SHAP analysis
+X_train_scaled_df = pd.DataFrame(X_train_scaled, columns=X_train.columns)
+X_test_scaled_df = pd.DataFrame(X_test_scaled, columns=X_test.columns)
+
+# Generate SHAP values and summary plot
+explainer = shap.Explainer(best_model)
+shap_values = explainer(X_test_scaled_df)
+
+shap.summary_plot(shap_values, X_test_scaled_df, plot_type="bar")
